@@ -1,0 +1,14 @@
+{
+  "name": "minecraft-bot-24-7",
+  "version": "1.0.0",
+  "description": "Minecraft 24/7 Bot Web Panel",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "mineflayer": "^4.20.0",
+    "socket.io": "^4.7.2"
+  }
+}
