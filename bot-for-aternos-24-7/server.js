@@ -161,6 +161,7 @@ io.on('connection', (socket) => {
         activeBots = [];
         socket.emit('log', 'Усі боти зупинені.');
     });
+    
 });
 
 const PORT = 6752;
