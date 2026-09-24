@@ -44,6 +44,17 @@
             border-radius: 6px;
             box-sizing: border-box;
         }
+        .inline-group {
+            display: flex;
+            gap: 10px;
+        }
+        .inline-group input {
+            flex: 1;
+        }
+        .inline-group button {
+            width: 140px;
+            margin-top: 0;
+        }
         button {
             width: 100%;
             padding: 12px;
@@ -67,6 +78,13 @@
         }
         #stopBtn:hover {
             background-color: #d32f2f;
+        }
+        #sendCmdBtn {
+            background-color: #2196F3;
+            color: white;
+        }
+        #sendCmdBtn:hover {
+            background-color: #1976D2;
         }
         .status {
             text-align: center;
@@ -97,6 +115,11 @@
         <div class="form-group">
             <label for="host">IP сервера (наприклад: myserver.aternos.me:12345):</label>
             <input type="text" id="host" placeholder="Введи IP:порт сервера">
+        </div>
+
+        <div class="form-group">
+            <label for="count">Кількість ботів (1-10):</label>
+            <input type="number" id="count" value="1" min="1" max="10" placeholder="Кількість">
         </div>
 
         <div class="form-group">
@@ -136,8 +159,16 @@
             </select>
         </div>
 
-        <button id="startBtn">Запустити бота</button>
-        <button id="stopBtn">Зупинити бота</button>
+        <button id="startBtn">Запустити ботів (Автономний режим 24/7)</button>
+        <button id="stopBtn">Зупинити ботів</button>
+
+        <div class="form-group" style="margin-top: 20px;">
+            <label for="commandInput">Команда для ботів (наприклад: /fly):</label>
+            <div class="inline-group">
+                <input type="text" id="commandInput" placeholder="/fly або /help">
+                <button id="sendCmdBtn">Виконати</button>
+            </div>
+        </div>
 
         <div class="status" id="statusText">Статус: Зупинено</div>
 
@@ -145,35 +176,48 @@
         <div class="logs" id="logsBox"></div>
     </div>
 
-    <!-- Підключаємо Socket.io клієнт -->
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
 
         const hostInput = document.getElementById('host');
+        const countInput = document.getElementById('count');
         const versionSelect = document.getElementById('version');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
+        const commandInput = document.getElementById('commandInput');
+        const sendCmdBtn = document.getElementById('sendCmdBtn');
         const statusText = document.getElementById('statusText');
         const logsBox = document.getElementById('logsBox');
 
         startBtn.addEventListener('click', () => {
             const host = hostInput.value.trim();
+            const count = parseInt(countInput.value) || 1;
             const version = versionSelect.value;
             if (!host) {
                 alert('Будь ласка, введіть IP сервера!');
                 return;
             }
-            socket.emit('start-bot', { host, version });
+            socket.emit('start-bot', { host, count, version });
         });
 
         stopBtn.addEventListener('click', () => {
             socket.emit('stop-bot');
         });
 
+        sendCmdBtn.addEventListener('click', () => {
+            const command = commandInput.value.trim();
+            if (!command) {
+                alert('Введіть команду!');
+                return;
+            }
+            socket.emit('send-command', { command });
+            commandInput.value = '';
+        });
+
         socket.on('status', (status) => {
             if (status === 'running') {
-                statusText.innerText = 'Статус: Працює 🟢';
+                statusText.innerText = 'Статус: Працює автономно 24/7 🟢';
                 statusText.style.color = '#4CAF50';
             } else {
                 statusText.innerText = 'Статус: Зупинено 🔴';
