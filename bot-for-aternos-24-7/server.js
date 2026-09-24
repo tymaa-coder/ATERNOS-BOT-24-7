@@ -1,36 +1,78 @@
-const express = require('http');
-const app = require('express')();
+const express = require('express');
+const app = express();
 const server = require('http').createServer(app);
 const io = require('socket.io')(server);
 const path = require('path');
 const mineflayer = require('mineflayer');
 
-// Налаштування статичних файлів
-app.use(require('express').static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-let bot = null;
+let activeBots = [];
 let botStatus = 'stopped';
+let lastConfig = null; // Зберігаємо налаштування для автоперепідключення
 
-io.on('connection', (socket) => {
-    console.log('Користувач підключився до панелі');
-    
-    // Відправляємо поточний статус при підключенні
-    socket.emit('status', botStatus);
+function createBotInstance(serverHost, serverPort, version, username, socket = null) {
+    const botOptions = {
+        host: serverHost,
+        port: serverPort,
+        username: username,
+        skipValidation: true
+    };
 
-    // Запуск бота
-    socket.on('start-bot', (data) => {
-        if (bot) {
-            socket.emit('log', '⚠️ Бот вже запущений!');
-            return;
+    if (version && version !== 'auto') {
+        botOptions.version = version;
+    }
+
+    const bot = mineflayer.createBot(botOptions);
+
+    bot.on('spawn', () => {
+        botStatus = 'running';
+        io.emit('status', 'running');
+        if (socket) socket.emit('log', `✅ Бот [${username}] успішно зайшов на сервер!`);
+        else console.log(`✅ Бот [${username}] успішно зайшов на сервер!`);
+    });
+
+    bot.on('end', (reason) => {
+        const msg = `❌ Бот [${username}] відключився: ${reason}. Перепідключення через 30 сек...`;
+        if (socket) socket.emit('log', msg);
+        else console.log(msg);
+
+        // Видаляємо старого зі списку і намагаємося перепідключитись через 30 секунд
+        activeBots = activeBots.filter(b => b !== bot);
+
+        if (lastConfig && activeBots.length < lastConfig.count) {
+            setTimeout(() => {
+                if (botStatus === 'running' && lastConfig) {
+                    createBotInstance(serverHost, serverPort, version, username, socket);
+                }
+            }, 30000);
         }
 
-        const { host, version } = data;
+        if (activeBots.length === 0 && botStatus === 'running') {
+            botStatus = 'stopped';
+            io.emit('status', 'stopped');
+        }
+    });
+
+    bot.on('error', (err) => {
+        const msg = `⚠️ Помилка бота [${username}]: ${err.message}`;
+        if (socket) socket.emit('log', msg);
+        else console.log(msg);
+    });
+
+    activeBots.push(bot);
+}
+
+io.on('connection', (socket) => {
+    socket.emit('status', botStatus);
+
+    socket.on('start-bot', (data) => {
+        const { host, count, version } = data;
         
-        // Розділяємо хост і порт (якщо введено як ip:port)
         let serverHost = host;
         let serverPort = 25565;
 
@@ -40,72 +82,57 @@ io.on('connection', (socket) => {
             serverPort = parseInt(parts[1]);
         }
 
-        socket.emit('log', `🔄 Запуск бота на сервері ${serverHost}:${serverPort} (версія: ${version})...`);
+        // Зупиняємо попередніх перед запуском нових
+        activeBots.forEach(b => { try { b.quit(); } catch(e) {} });
+        activeBots = [];
 
-        try {
-            const botOptions = {
-                host: serverHost,
-                port: serverPort,
-                username: 'AternosBot247',
-                // Відключаємо перевищення ліміту пакетів, щоб не спамити
-                skipValidation: true
-            };
+        lastConfig = { serverHost, serverPort, version, count };
+        botStatus = 'running';
+        io.emit('status', 'running');
 
-// Якщо версія не "auto", додаємо її в налаштування
-            if (version && version !== 'auto') {
-                botOptions.version = version;
+        socket.emit('log', `🔄 Запуск ${count} ботів на сервері ${serverHost}:${serverPort}...`);
+
+        // Запускаємо ботів з невеликою затримкою між ними (по 1.5 секунди), щоб не спамити сервер
+        let launched = 0;
+        const interval = setInterval(() => {
+            if (launched >= count || botStatus === 'stopped') {
+                clearInterval(interval);
+                return;
             }
-
-            bot = mineflayer.createBot(botOptions);
-
-            bot.on('spawn', () => {
-                botStatus = 'running';
-                io.emit('status', 'running');
-                io.emit('log', '✅ Бот успішно зайшов на сервер і з’явився у світі!');
-            });
-
-            bot.on('end', (reason) => {
-                io.emit('log', `❌ Бот відключився від сервера. Причина: ${reason}`);
-                bot = null;
-                botStatus = 'stopped';
-                io.emit('status', 'stopped');
-            });
-
-            bot.on('error', (err) => {
-                io.emit('log', `⚠️ Помилка бота: ${err.message}`);
-            });
-
-            bot.on('kick', (reason) => {
-                io.emit('log', `👢 Бот був кікнутий із сервера: ${reason}`);
-            });
-
-        } catch (error) {
-            io.emit('log', `❌ Не вдалося створити бота: ${error.message}`);
-            bot = null;
-            botStatus = 'stopped';
-            io.emit('status', 'stopped');
-        }
+            launched++;
+            const username = `AtenBot_${Math.floor(Math.random() * 900) + 100}`;
+            createBotInstance(serverHost, serverPort, version, username, socket);
+        }, 1500);
     });
 
-    // Зупинка бота
     socket.on('stop-bot', () => {
-        if (bot) {
-            socket.emit('log', '🛑 Зупинка бота...');
-            bot.quit();
-            bot = null;
-        } else {
-            socket.emit('log', '⚠️ Бот і так не запущений.');
-        }
         botStatus = 'stopped';
+        lastConfig = null;
+        socket.emit('log', '🛑 Зупинка всіх ботів...');
+        activeBots.forEach(b => {
+            try { b.quit(); } catch(e) {}
+        });
+        activeBots = [];
         io.emit('status', 'stopped');
     });
 
-    socket.on('disconnect', () => {
-        console.log('Користувач відключився від панелі');
+    socket.on('send-command', (data) => {
+        const { command } = data;
+        if (activeBots.length === 0) {
+            socket.emit('log', '⚠️ Немає активних ботів для виконання команди!');
+            return;
+        }
+
+        socket.emit('log', `💬 Відправка команди: ${command}`);
+        // Перший бот у списку відправляє команду в чат
+        try {
+            activeBots[0].chat(command);
+        } catch (e) {
+            socket.emit('log', `❌ Помилка відправки команди: ${e.message}`);
+        }
     });
 });
 
-// Визначаємо порт для веб-сервера (Render/Railway автоматично передають process.env.PORT)
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`Сервер запущено на порту ${PORT}`);
