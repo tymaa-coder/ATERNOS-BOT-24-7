@@ -2,94 +2,111 @@
 <html lang="uk">
 <head>
     <meta charset="UTF-8">
-    <title>Minecraft 24/7 Bot Launcher</title>
+    <title>Minecraft Bot Control Panel</title>
     <style>
-        body { font-family: Arial, sans-serif; background: #1e1e1e; color: #fff; text-align: center; padding-top: 30px; }
-        .card { background: #2d2d2d; padding: 20px; border-radius: 10px; display: inline-block; width: 380px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
-        input, select { width: 90%; padding: 10px; margin: 8px 0; background: #3c3c3c; border: 1px solid #555; color: #fff; border-radius: 5px; }
-        button { width: 93%; padding: 12px; margin: 8px 0; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; }
-        #startBtn { background: #28a745; color: white; }
-        #startBtn:hover { background: #218838; }
-        #equipBtn { background: #007bff; color: white; }
-        #equipBtn:hover { background: #0056b3; }
-        #attackBtn { background: #ffc107; color: #000; }
-        #attackBtn:hover { background: #e0a800; }
-        #stopBtn { background: #dc3545; color: white; }
-        #stopBtn:hover { background: #c82333; }
-        #console { background: #111; color: #00ff00; text-align: left; padding: 10px; height: 160px; overflow-y: scroll; font-family: monospace; font-size: 12px; border-radius: 5px; margin-top: 15px; }
+        body { font-family: Arial, sans-serif; background: #1e1e1e; color: #fff; padding: 20px; max-width: 550px; margin: auto; }
+        .card { background: #2d2d2d; padding: 20px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); margin-bottom: 15px; }
+        input, select { width: 100%; padding: 10px; margin: 8px 0; background: #3d3d3d; border: 1px solid #555; color: #fff; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; margin-top: 10px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+        .btn-start { background: #4CAF50; color: white; }
+        .btn-equip { background: #ff9800; color: white; }
+        .btn-attack { background: #e91e63; color: white; }
+        .btn-stop { background: #f44336; color: white; }
+        #logs { background: #111; padding: 10px; height: 140px; overflow-y: auto; font-family: monospace; font-size: 12px; border-radius: 4px; margin-top: 10px; border: 1px solid #444; }
     </style>
 </head>
 <body>
 
-    <div class="card">
-        <h2>Minecraft 24/7 Bot</h2>
-        
-        <input type="text" id="ipInput" placeholder="IP сервера (наприклад: 127.0.0.1:25565)">
-        
-        <input type="number" id="countInput" placeholder="Кількість ботів" value="1" min="1" max="20">
+<div class="card">
+    <h2>Налаштування ботів</h2>
+    <label>IP сервера:</label>
+    <input type="text" id="host" placeholder="наприклад: myServer.aternos.me">
 
-        <select id="versionSelect">
-            <option value="auto">Автовизначення версії</option>
-            <option value="1.21.1">1.21.1</option>
-            <option value="1.20.4">1.20.4</option>
-            <option value="1.20.1">1.20.1</option>
-            <option value="1.19.4">1.19.4</option>
-            <option value="1.18.2">1.18.2</option>
-            <option value="1.17.1">1.17.1</option>
-            <option value="1.16.5">1.16.5</option>
-        </select>
+    <label>Порт:</label>
+    <input type="text" id="port" value="25565">
 
-        <button id="startBtn" onclick="startBots()">Почати 24/7</button>
-        
-        <input type="text" id="targetInput" placeholder="Нік гравця для цілі">
-        <button id="attackBtn" onclick="attackTarget()">⚔️ Оточити і бігти за гравцем</button>
-        
-        <button id="equipBtn" onclick="equipGear()">🛡️ Одягти броню + меч + тотем</button>
+    <label>Базовий нік ботів:</label>
+    <input type="text" id="baseUsername" value="BotArmy">
 
-        <button id="stopBtn" onclick="stopBots()">Стоп (Зупинити всіх)</button>
+    <label>Кількість ботів:</label>
+    <input type="number" id="count" value="1" min="1" max="10">
 
-        <div id="console">Консоль логів...</div>
-    </div>
+    <label>Версія гри:</label>
+    <select id="version">
+        <option value="auto">Автовизначення</option>
+        <option value="1.21.4">1.21.4</option>
+        <option value="1.20.4">1.20.4</option>
+        <option value="1.19.4">1.19.4</option>
+    </select>
 
-    <script src="/socket.io/socket.io.js"></script>
-    <script>
-        const socket = io();
+    <button class="btn-start" onclick="startBots()">Запустити ботів</button>
+</div>
 
-        function logMessage(msg) {
-            const consoleDiv = document.getElementById('console');
-            consoleDiv.innerHTML += `<div>> ${msg}</div>`;
-            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+<div class="card">
+    <h2>Керування спорядженням та атакою</h2>
+    
+    <button class="btn-equip" onclick="equipGear()">Одягнути броню, взяти меч і тотем</button>
+
+    <hr style="border-color: #444; margin: 15px 0;">
+
+    <label>Нік цілі для нападу:</label>
+    <input type="text" id="targetName" placeholder="Введіть нік гравця">
+    <button class="btn-attack" onclick="attackPlayer()">Напасти на гравця</button>
+
+    <button class="btn-stop" onclick="stopBots()">Зупинити всіх ботів</button>
+
+    <h3>Логи:</h3>
+    <div id="logs"></div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    const socket = io();
+
+    function logMessage(msg) {
+        const logs = document.getElementById('logs');
+        logs.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+        logs.scrollTop = logs.scrollHeight;
+    }
+
+    function startBots() {
+        const host = document.getElementById('host').value;
+        const port = document.getElementById('port').value;
+        const baseUsername = document.getElementById('baseUsername').value;
+        const count = document.getElementById('count').value;
+        const version = document.getElementById('version').value;
+
+        if (!host) {
+            alert('Введіть IP сервера!');
+            return;
         }
 
-        function startBots() {
-            const host = document.getElementById('ipInput').value;
-            const version = document.getElementById('versionSelect').value;
-            const count = document.getElementById('countInput').value;
+        socket.emit('start-bots', { host, port, baseUsername, count, version });
+    }
 
-            if (!host) {
-                alert('Введіть IP сервера!');
-                return;
-            }
+    function equipGear() {
+        socket.emit('equip-gear');
+    }
 
-            socket.emit('start-many-bots', { host, version, count });
-        }
+    function attackPlayer() {
+        const targetName = document.getElementById('targetName').value;
+        socket.emit('attack-attack' || 'attack-player', { targetName }); // виправлено виклик
+    }
 
-        function attackTarget() {
-            const targetName = document.getElementById('targetInput').value;
-            socket.emit('attack-target', targetName);
-        }
+    // Правильний виклик для атаки:
+    function attackPlayer() {
+        const targetName = document.getElementById('targetName').value;
+        socket.emit('attack-player', { targetName });
+    }
 
-        function equipGear() {
-            socket.emit('equip-gear');
-        }
+    function stopBots() {
+        socket.emit('stop-bots');
+    }
 
-        function stopBots() {
-            socket.emit('stop-bots');
-        }
+    socket.on('log', (data) => {
+        logMessage(data);
+    });
+</script>
 
-        socket.on('log', (data) => {
-            logMessage(data);
-        });
-    </script>
 </body>
 </html>

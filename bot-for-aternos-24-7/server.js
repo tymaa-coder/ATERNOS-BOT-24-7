@@ -1,7 +1,9 @@
 const express = require('express');
-const http = require('http');
+const http = global.require ? global.require('http') : require('http');
 const { Server } = require('socket.io');
 const mineflayer = require('mineflayer');
+const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
+const pvp = require('mineflayer-pvp').plugin;
 
 const app = express();
 const server = http.createServer(app);
@@ -9,102 +11,160 @@ const io = new Server(server);
 
 app.use(express.static('public'));
 
-let activeBot = null;
-let botStatus = 'stopped';
-let botLogs = [];
-
-function addLog(ioInstance, message) {
-    console.log(message);
-    botLogs.push(message);
-    if (botLogs.length > 50) botLogs.shift(); // Зберігаємо останні 50 логів
-    ioInstance.emit('log', message);
-}
-
-function generateRandomNick() {
-    const adjectives = ["Cool", "Pro", "Super", "Mega", "Epic", "Fast", "Shadow", "Dark"];
-    const nouns = ["Gamer", "Player", "Bot", "Hero", "Ninja", "User", "Builder", "Mined"];
-    return adjectives[Math.floor(Math.random() * adjectives.length)] + 
-           nouns[Math.floor(Math.random() * nouns.length)] + 
-           (Math.floor(Math.random() * 9000) + 1000);
-}
+let bots = [];
 
 io.on('connection', (socket) => {
-    // Коли користувач заходить на сайт, відправляємо йому поточний статус бота і старі логи
-    socket.emit('status', botStatus);
-    botLogs.forEach(log => socket.emit('log', log));
+    console.log('Користувач підключився до панелі керування');
 
-    // Подія запуску бота
-    socket.on('start-bot', (data) => {
-        const { host, version } = data;
+    // 1. Запуск кількох ботів з інтервалом 5 секунд і правильними ніками
+    socket.on('start-bots', async (data) => {
+        const { host, port, baseUsername, count, version } = data;
+        const numBots = parseInt(count) || 1;
 
-        if (activeBot) {
-            socket.emit('log', 'Бот вже запущений!');
+        socket.emit('log', `Початок запуску ${numBots} ботів (затримка 5 секунд між заходами)...`);
+
+        for (let i = 1; i <= numBots; i++) {
+            let username;
+            if (i === 1) {
+                username = baseUsername;
+            } else {
+                username = `${baseUsername}${i - 1}`;
+            }
+            
+            try {
+                socket.emit('log', `Запускаємо бота: ${username}...`);
+                
+                const bot = mineflayer.createBot({
+                    host: host,
+                    port: port ? parseInt(port) : 25565,
+                    username: username,
+                    version: version === 'auto' ? false : version
+                });
+
+                bot.loadPlugin(pathfinder);
+                bot.loadPlugin(pvp);
+
+                bot.once('spawn', () => {
+                    socket.emit('log', `Бот ${username} успішно зайшов на сервер!`);
+                    autoEquipGear(bot);
+                });
+
+                // Захист від кіка за AFK
+                setInterval(() => {
+                    if (bot && bot.entity) {
+                        const yaw = Math.random() * Math.PI * 2;
+                        const pitch = (Math.random() * Math.PI) - (Math.PI / 2);
+                        bot.look(yaw, pitch, true);
+                    }
+                }, 45000);
+
+                bot.on('end', (reason) => {
+                    socket.emit('log', `Бот ${username} вийшов. Причина: ${reason}`);
+                    if (bot.huntInterval) clearInterval(bot.huntInterval);
+                });
+
+                bot.on('error', (err) => {
+                    socket.emit('log', `Помилка бота ${username}: ${err.message}`);
+                });
+
+                bots.push(bot);
+
+            } catch (e) {
+                socket.emit('log', `Помилка створення ${username}: ${e.message}`);
+            }
+
+            if (i < numBots) {
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+        }
+        
+        socket.emit('status', 'running');
+        socket.emit('log', 'Усі боти по черзі пройшли процедуру запуску!');
+    });
+
+    // 2. Одягання спорядження
+    socket.on('equip-gear', () => {
+        if (bots.length === 0) {
+            socket.emit('log', 'Немає активних ботів!');
             return;
         }
 
-        const username = generateRandomNick();
-        addLog(io, `Спроба підключення до ${host} (версія: ${version}) під ніком ${username}...`);
-
-        let serverHost = host;
-        let serverPort = 25565;
-        if (host.includes(':')) {
-            const parts = host.split(':');
-            serverHost = parts[0];
-            serverPort = parseInt(parts[1]);
-        }
-
-        try {
-            activeBot = mineflayer.createBot({
-                host: serverHost,
-                port: serverPort,
-                username: username,
-                version: version === 'auto' ? undefined : version
-            });
-
-            botStatus = 'running';
-            io.emit('status', 'running');
-
-            activeBot.on('spawn', () => {
-                addLog(io, `Успішно! Бот зажив на сервері як ${username}`);
-            });
-
-            activeBot.on('end', (reason) => {
-                addLog(io, `Бот відключився. Причина: ${reason}`);
-                botStatus = 'stopped';
-                io.emit('status', 'stopped');
-                activeBot = null;
-            });
-
-            activeBot.on('error', (err) => {
-                addLog(io, `Помилка бота: ${err.message}`);
-                botStatus = 'stopped';
-                io.emit('status', 'stopped');
-                activeBot = null;
-            });
-
-        } catch (e) {
-            addLog(io, `Помилка запуску: ${e.message}`);
-            activeBot = null;
-            botStatus = 'stopped';
-            io.emit('status', 'stopped');
-        }
+        socket.emit('log', 'Боти намагаються одягнути броню та взяти спорядження...');
+        bots.forEach(bot => autoEquipGear(bot));
     });
 
-    // Подія зупинки бота
-    socket.on('stop-bot', () => {
-        if (activeBot) {
-            activeBot.quit();
-            activeBot = null;
-            botStatus = 'stopped';
-            io.emit('status', 'stopped');
-            addLog(io, 'Бот зупинений користувачем.');
-        } else {
-            addLog(io, 'Немає активних ботів для зупинки.');
+    // 3. Постійне переслідування та нескінченна атака на гравця
+    socket.on('attack-player', (data) => {
+        const { targetName } = data;
+        if (!targetName) {
+            socket.emit('log', 'Введіть нік гравця для атаки!');
+            return;
         }
+
+        socket.emit('log', `Усі боти отримали команду постійно переслідувати гравця ${targetName}!`);
+
+        bots.forEach(bot => {
+            // Зупиняємо попередній таймер погоні, якщо він був
+            if (bot.huntInterval) clearInterval(bot.huntInterval);
+
+            // Кожні 2 секунди бот перевіряє, де ти, і оновлює шлях до тебе
+            bot.huntInterval = setInterval(() => {
+                try {
+                    const target = bot.players[targetName]?.entity;
+                    
+                    if (target) {
+                        const defaultMove = new Movements(bot);
+                        bot.pathfinder.setMovements(defaultMove);
+                        // Біжимо за тобою на відстань 1 блок
+                        bot.pathfinder.setGoal(new goals.GoalFollow(target, 1), true);
+                        // Б'ємо нескінченно
+                        bot.pvp.attack(target);
+                    }
+                } catch (e) {
+                    // Ігноруємо мінорні помилки під час сканування
+                }
+            }, 2000);
+        });
+    });
+
+    // 4. Зупинка всіх ботів
+    socket.on('stop-bots', () => {
+        bots.forEach(bot => {
+            if (bot.huntInterval) clearInterval(bot.huntInterval);
+            bot.quit();
+        });
+        bots = [];
+        socket.emit('log', 'Усі боти зупинені.');
+        socket.emit('status', 'stopped');
     });
 });
 
-const PORT = process.env.PORT || 6752;
+// Функція екіпірування
+function autoEquipGear(bot) {
+    setTimeout(async () => {
+        try {
+            const items = bot.inventory.items();
+
+            const helmet = items.find(i => i.name.includes('helmet'));
+            const chestplate = items.find(i => i.name.includes('chestplate'));
+            const leggings = items.find(i => i.name.includes('leggings'));
+            const boots = items.find(i => i.name.includes('boots'));
+            const sword = items.find(i => i.name.includes('sword'));
+            const totem = items.find(i => i.name.includes('totem_of_undying'));
+
+            if (helmet) await bot.equip(helmet, 'head');
+            if (chestplate) await bot.equip(chestplate, 'torso');
+            if (leggings) await bot.equip(leggings, 'legs');
+            if (boots) await bot.equip(boots, 'feet');
+            if (sword) await bot.equip(sword, 'hand');
+            if (totem) await bot.equip(totem, 'off-hand');
+        } catch (err) {
+            console.log(`Помилка екіпірування для ${bot.username}:`, err.message);
+        }
+    }, 1000);
+}
+
+const PORT = 3000;
 server.listen(PORT, () => {
-    console.log(`Сервер запущено на порту ${PORT}`);
+    console.log(`Сервер панелі запущено! Відкрийте: http://localhost:${PORT}`);
 });
